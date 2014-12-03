@@ -309,6 +309,7 @@ class MarkovChain():
                     cx = csr_matrix((data, indices, indptr), shape=shape)
                 else:
                     raise Exception("wrong specific prior format")
+                
 
             done = set()
             done_counter = 0
