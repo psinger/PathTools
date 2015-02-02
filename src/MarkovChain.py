@@ -295,26 +295,27 @@ class MarkovChain():
 
             #start with combining prior knowledge with real data
 
-            if self.specific_prior_.shape[0] == self.specific_prior_.shape[1]:
-                if self.specific_prior_ is not None and k[0] != RESET_STATE:
-                    if isinstance(self.specific_prior_, csr_matrix):
-                        cx = self.specific_prior_.getrow(self.specific_prior_vocab_[k[0]])
-                    elif isinstance(self.specific_prior_, tb.group.RootGroup):
-                        row = self.specific_prior_vocab_[k[0]]
-                        indptr_first = self.specific_prior_.indptr[row]
-                        indptr_second = self.specific_prior_.indptr[row+1]
-                        data = self.specific_prior_.data[indptr_first:indptr_second]
-                        indices = self.specific_prior_.indices[indptr_first:indptr_second]
-                        indptr = np.array([0,indices.shape[0]])
-                        if self.reset_:
-                            shape = (1, self.state_count_initial_-1)
+            if self.specific_prior_ is not None:
+                if self.specific_prior_.shape[0] == self.specific_prior_.shape[1]:
+                     if k[0] != RESET_STATE:
+                        if isinstance(self.specific_prior_, csr_matrix):
+                            cx = self.specific_prior_.getrow(self.specific_prior_vocab_[k[0]])
+                        elif isinstance(self.specific_prior_, tb.group.RootGroup):
+                            row = self.specific_prior_vocab_[k[0]]
+                            indptr_first = self.specific_prior_.indptr[row]
+                            indptr_second = self.specific_prior_.indptr[row+1]
+                            data = self.specific_prior_.data[indptr_first:indptr_second]
+                            indices = self.specific_prior_.indices[indptr_first:indptr_second]
+                            indptr = np.array([0,indices.shape[0]])
+                            if self.reset_:
+                                shape = (1, self.state_count_initial_-1)
+                            else:
+                                shape = (1, self.state_count_initial_)
+                            cx = csr_matrix((data, indices, indptr), shape=shape)
                         else:
-                            shape = (1, self.state_count_initial_)
-                        cx = csr_matrix((data, indices, indptr), shape=shape)
-                    else:
-                        raise Exception("wrong specific prior format")
-            else:
-                cx = self.specific_prior_
+                            raise Exception("wrong specific prior format")
+                else:
+                    cx = self.specific_prior_
 
             done = set()
             done_counter = 0
