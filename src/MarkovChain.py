@@ -294,7 +294,7 @@ class MarkovChain():
             second_term_denom = 0
 
             #start with combining prior knowledge with real data
-
+            cx = None
             if self.specific_prior_ is not None:
                 if self.specific_prior_.shape[0] == self.specific_prior_.shape[1]:
                      if k[0] != RESET_STATE:
@@ -317,25 +317,33 @@ class MarkovChain():
                 else:
                     cx = self.specific_prior_
 
+
+            n_sum = sum(v.values())
+            prior_sum = 0
+
+            if cx is not None:
+                prior_sum += cx.sum()
+
+            prior_sum += int(self.state_count_initial_) * self.prior_
+
+
+
+            #print n_sum, prior_sum
+
             done = set()
             done_counter = 0
 
             # if rowmax_prior > 0:
             #     tmp_max = max(v.values())
             for x, c in v.iteritems():
-                prior = self.prior_ #+ (tmp_max - c) * 1.
+                prior = self.prior_
 
                 if empirical_prior > 0:
                     prior += empirical_prior
 
 
+                if cx is not None and k[0] != RESET_STATE and x != RESET_STATE:
 
-              #  if self.empirical_prior_ > 0:
-               #     prior += (tmp_max - c) * self.empirical_prior_
-
-                if self.specific_prior_ is not None and k[0] != RESET_STATE and x != RESET_STATE:
-                    #print k[0], x
-                    #prior += self.specific_prior_[self.specific_prior_vocab_[k[0]], self.specific_prior_vocab_[x]]
                     idx = self.specific_prior_vocab_[x]
                     prior += cx[0, idx]
 
@@ -348,11 +356,11 @@ class MarkovChain():
 
                 cp = c + prior
                               
-                first_term_enum += prior
+                #first_term_enum += prior
                 first_term_denom += gammaln(prior)
                 
                 second_term_enum += gammaln(cp)
-                second_term_denom += cp
+                #second_term_denom += cp
                 
                 done_counter += 1
                 counter += prior
@@ -361,65 +369,21 @@ class MarkovChain():
 
 
 
-            #now lets add all prior information for which we do NOT have real data
-            if self.specific_prior_ is not None and k[0] != RESET_STATE:#
-
-                #if k[0] in self.specific_prior_:
-                 #   for c in [b+self.prior_ for a,b in self.specific_prior_[k[0]].iteritems() if a not in v.keys()] :
-
-                #cx = coo_matrix(self.specific_prior_.getrow(self.specific_prior_vocab_[k[0]]))
-                #cx = self.specific_prior_.getrow(self.specific_prior_vocab_[k[0]]).tocoo()
-                cx = cx.tocoo()
-                for i,j,c in itertools.izip(cx.row, cx.col, cx.data):
-                    #print "(%d, %d), %s" % (i,j,v)
-
-                    #if self.specific_prior_vocab_reverse_[j] not in v.keys():
-                    if j not in done:
-                        c += self.prior_
-                        first_term_enum += c
-                        first_term_denom += gammaln(c)
-
-                        second_term_enum += gammaln(c)
-                        second_term_denom += c
-
-                        done_counter += 1
-
-                        counter += c
-
-            
-            #finally, we also need to cover those cases where no prior and no real data is available
-            non_trans_count = int(self.state_count_initial_ - done_counter)
-
-            prior = self.prior_
-
-            if wrong_prior > 0:
-                prior += wrong_prior#(tmp_max) * rowmax_prior
-
-            counter += prior * non_trans_count
-
-            #maybe I can skip this
-            first_term_enum += (prior * non_trans_count)
-            
-            first_term_denom += (gammaln(prior) * non_trans_count)
-
-            second_term_enum += (gammaln(prior) * non_trans_count)
-            second_term_denom += (prior * non_trans_count)
-
             #do the final calculation
-            first_term_enum = gammaln(first_term_enum)
+            first_term_enum = gammaln(prior_sum)
             first_term = first_term_enum - first_term_denom
             
-            second_term_denom = gammaln(second_term_denom)
+            second_term_denom = gammaln(n_sum + prior_sum)
             second_term = second_term_enum - second_term_denom
-            
 
             evidence += (first_term + second_term)
 
         #print "final: %.30f" %evidence
         print "evidence", evidence
         #print self.prior_, empirical_prior, wrong_prior
-        print "pseudo counts: ", counter
+        #print "pseudo counts: ", counter
         return evidence
+
     
     def predict_eval(self, test, eval="rank"):
         '''
