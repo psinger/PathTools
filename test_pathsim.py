@@ -14,7 +14,7 @@ for window_size in [2, 3]:
 
     sim = PathSim(window_size=window_size, sim_func="cosine", delimiter=" ")
     
-    sim.fit("data/test_case_1")
+    sim.fit("data/test_case_4")
 
     print sim.sim("1","1")
     print sim.sim("1","3")

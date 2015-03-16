@@ -294,7 +294,9 @@ class MarkovChain():
             cx = None
             if self.specific_prior_ is not None:
                 if self.specific_prior_.shape[0] == self.specific_prior_.shape[1]:
-                     if k[0] != RESET_STATE:
+                    if self.specific_prior_.shape[0] != self.state_count_initial_-1 and self.specific_prior_.shape[0] != self.state_count_initial_:
+                        raise Exception("something is wrong with the shape of the specific prior")
+                    if k[0] != RESET_STATE:
                         if isinstance(self.specific_prior_, csr_matrix):
                             cx = self.specific_prior_.getrow(self.specific_prior_vocab_[k[0]])
                         elif isinstance(self.specific_prior_, tb.group.RootGroup):
@@ -312,7 +314,10 @@ class MarkovChain():
                         else:
                             raise Exception("wrong specific prior format")
                 elif self.specific_prior_.shape[0] == 1:
-                    cx = self.specific_prior_
+                    if self.specific_prior_.shape[1] != self.state_count_initial_-1 and self.specific_prior_.shape[1] != self.state_count_initial_:
+                        raise Exception("something is wrong with the shape of the specific prior")
+                    if k[0] != RESET_STATE:
+                        cx = self.specific_prior_
                 else:
                     raise Exception("something is wrong with the shape of the specific prior")
 
@@ -344,6 +349,7 @@ class MarkovChain():
                 if cx is not None and k[0] != RESET_STATE and x != RESET_STATE:
 
                     idx = self.specific_prior_vocab_[x]
+
                     prior += cx[0, idx]
 
                     done.add(idx)
