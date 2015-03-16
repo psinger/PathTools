@@ -285,13 +285,10 @@ class MarkovChain():
 
         for k,v in self.transition_dict_.iteritems():
             tmp += 1
-            #if tmp % 100 == 0:
-                #print tmp
 
-            first_term_enum = 0
             first_term_denom = 0
             second_term_enum = 0
-            second_term_denom = 0
+
 
             #start with combining prior knowledge with real data
             cx = None
@@ -314,8 +311,10 @@ class MarkovChain():
                             cx = csr_matrix((data, indices, indptr), shape=shape)
                         else:
                             raise Exception("wrong specific prior format")
-                else:
+                elif self.specific_prior_.shape[0] == 1:
                     cx = self.specific_prior_
+                else:
+                    raise Exception("something is wrong with the shape of the specific prior")
 
 
             n_sum = sum(v.values())
@@ -348,19 +347,13 @@ class MarkovChain():
                     prior += cx[0, idx]
 
                     done.add(idx)
-                    # if k[0] in self.specific_prior_:
-                    #     if x in self.specific_prior_[k[0]]:
-                    #         prior += self.specific_prior_[k[0]][x]
 
-                #print prior
 
                 cp = c + prior
-                              
-                #first_term_enum += prior
+
                 first_term_denom += gammaln(prior)
                 
                 second_term_enum += gammaln(cp)
-                #second_term_denom += cp
                 
                 done_counter += 1
                 counter += prior
