@@ -46,14 +46,17 @@ class MarkovChain():
     def __init__(self, k=1, reverse=False, use_prior=False,  reset=True, prior=1., specific_prior = None, specific_prior_vocab = None, modus="mle"):
         '''
         Constructor
-        modus = specifies the modus of the class, there are two possibilities: modus='mle' is focused on working with mle matrices representing probabilities
-        modus = 'bayes' focuses on working with bayesian evidence and only works with plain transition counts
-        reverse = revert the paths
-        use_prior = flag if script should use a prior
-        reset = flag for using generic reset state
-        prior = prior
-        specific_prior = sparse matrix of specific prior configurations (can also be a hdf5 matrix)
-        specific_prior_vocab = dictionary of vocabulary that matches state names with indices of the specific_prior matrix
+        :param modus: specifies the modus of the class, there are two possibilities: modus='mle' is focused on working
+        with mle matrices representing probabilities
+        :param  modus: 'bayes' focuses on working with bayesian evidence and only works with plain transition counts
+        :param reverse: revert the paths
+        :param use_prior: flag if script should use a prior
+        :param reset: flag for using generic reset state
+        :param prior: prior (pseudo count) for each single element (in case of MLE it is smoothing)
+        :param specific_prior: sparse matrix of specific alpha configurations (can also be a hdf5 matrix)
+        Note that usually the values should directly represent the additional alpha values for corresponding elements.
+        :param specific_prior_vocab: dictionary of vocabulary that matches state names with indices
+        of the specific_prior matrix
         '''
         self.k_ = k
         self.reset_ = reset
@@ -80,7 +83,7 @@ class MarkovChain():
         self.modus_ = modus
 
         self.use_prior_ = use_prior
-        self.prior_ = prior
+        self.alpha_ = prior
 
 
 
@@ -92,11 +95,11 @@ class MarkovChain():
         if self.specific_prior_ is not None and k != 1:
             raise Exception("Using specific priors with higher orders not yet implemented!")
         if self.specific_prior_ is not None and self.specific_prior_vocab_ is None:
-            raise Exception("Can't work with a specific prior without vocabulary information!")
+            raise Exception("Can't work with a specific alpha without vocabulary information!")
         if self.specific_prior_ is not None and self.modus_ != "bayes":
-            raise Exception("Specific prior only works mit Bayes modus!")
+            raise Exception("Specific alpha only works mit Bayes modus!")
         if self.specific_prior_ is not None and isinstance(self.specific_prior_, csr_matrix) and self.specific_prior_.shape[0] != self.specific_prior_.shape[1]:
-            warnings.warn("Specific prior dimensions are not the same. Only appropriate if one the matrix is 1xN for setting each row the same!")
+            warnings.warn("Specific alpha dimensions are not the same. Only appropriate if one the matrix is 1xN for setting each row the same!")
 
         self.proba_from_unknown_ = 0
         self.proba_to_unknown_ = dict()
@@ -107,21 +110,21 @@ class MarkovChain():
         '''
 
         if self.use_prior_ == True:
-            smoothing_divider = float(self.state_count_initial_ * self.prior_)
+            smoothing_divider = float(self.state_count_initial_ * self.alpha_)
             print "smoothing divider: ", smoothing_divider
-            self.proba_from_unknown_ = self.prior_ / smoothing_divider
+            self.proba_from_unknown_ = self.alpha_ / smoothing_divider
             print "proba_from_unknown_: ", self.proba_from_unknown_
 
             for k, v in d.iteritems():
                 s = float(sum(v.values()))
-                #smoothing_divider = float(sum([round(x*self.alpha_)+self.prior_ for x in self.specific_prior_[k].values()]))
-                #smoothing_divider += float((self.state_count_initial_ - len(self.specific_prior_[k].values())) * self.prior_)
+                #smoothing_divider = float(sum([round(x*self.alpha_)+self.alpha_ for x in self.specific_prior_[k].values()]))
+                #smoothing_divider += float((self.state_count_initial_ - len(self.specific_prior_[k].values())) * self.alpha_)
 
                 divider = s + smoothing_divider
                 self.observation_count_ += divider
                 for i, j in v.iteritems():
-                    v[i] = (j + self.prior_) / divider
-                self.proba_to_unknown_[k] = self.prior_ / divider
+                    v[i] = (j + self.alpha_) / divider
+                self.proba_to_unknown_[k] = self.alpha_ / divider
                 #print "row sum: ", (float(sum(v.values())) + ((self.state_count_initial_ - len(v)) * self.proba_to_unknown_[k]))
         else:
             for k, v in d.iteritems():
@@ -156,6 +159,35 @@ class MarkovChain():
         ranked_key_dict[FAKE_ELEM] = self.state_count_initial_
 
         return ranked_key_dict
+
+    def _def_distr_chips_row(self, matrix, chips):
+        '''
+        Helper class!
+        Do not use outside.
+        See: https://github.com/psinger/HypTrails
+        '''
+
+        matrix = (matrix / matrix.sum()) * chips
+
+        floored = matrix.floor()
+        rest_sum = int(chips - floored.sum())
+
+        matrix = matrix - floored
+
+        idx = matrix.data.argpartition(-rest_sum)[-rest_sum:]
+
+        i, j = matrix.nonzero()
+
+        i_idx = i[idx]
+        j_idx = j[idx]
+
+        if len(i_idx) > 0:
+            floored[i_idx, j_idx] += 1
+
+        floored.eliminate_zeros()
+
+        del matrix
+        return floored
 
     def prepare_data(self, paths):
         '''
@@ -192,7 +224,7 @@ class MarkovChain():
         '''
         print "====================="
         print "K: ", self.k_
-        print "prior: ", self.prior_
+        print "prior: ", self.alpha_
 
         for line in paths:
             if self.reset_:
@@ -219,10 +251,6 @@ class MarkovChain():
 
         if ret:
             return self.transition_dict_
-
-        #sys.exit()
-
-
 
     def loglikelihood(self):
         '''
@@ -254,32 +282,60 @@ class MarkovChain():
 
 
     #@profile
-    def bayesian_evidence(self, empirical_prior = 0, wrong_prior = 0):
+    def bayesian_evidence(self, live_distribution = False, chip_amount = None):
         '''
-        Calculating the bayesian evidence of the fitted MLE
-        empirical_prior and wrong_prior are just for testing
-        please do not use them except for testing
+        Calculating the bayesian evidence
+        Not every single exception case is tackled in the code of this function.
+        It is the responsibility of the user that---if used---the specific prior matrix is appropriately shaped and set.
+        :param live_distribution: This should be set true if the chip (pseudo count) distribution
+        has not been done beforehand. If this is set true, the chip_amount parameter has to be set accordingly.
+        Note that this variant distributes the same number of chips to each row (instead of potentially globally)!
+        :param chip_amount: Sets the number of chips that should be distributed to each row. Only set if
+        the live_distribution parameter is set to True.
+        :return: Bayesian evidence (marginal likelihood)
         '''
         if self.modus_ != "bayes":
             raise Exception("Bayesian evidence does not work with modus='mle'")
 
+        if bool(live_distribution) != bool(chip_amount):
+            raise Exception("The parameters live_distribution and chip_amount depend on each other!")
+
+        if chip_amount is not None:
+            if float(chip_amount).is_integer() == False:
+                raise Exception, "Only use C = |S| * k chips"
+
+        single_row = False
+        is_hdf5 = False
+        is_csr = False
+        if self.specific_prior_ is not None:
+            if self.specific_prior_.shape[0] == 1:
+                single_row = True
+            if isinstance(self.specific_prior_, csr_matrix):
+                is_csr = True
+            elif isinstance(self.specific_prior_, tb.group.RootGroup):
+                is_hdf5 = True
+            else:
+                raise Exception("wrong specific prior format")
+
+        #if I only have one row, I only need to do the live distribution once
+        if live_distribution and single_row:
+            self.specific_prior_ = self._def_distr_chips_row(self.specific_prior_, chip_amount)
+
+            #if self.specific_prior_.shape[1] != self.state_count_initial_-1 and self.specific_prior_.shape[1] != self.state_count_initial_:
+                    #    raise Exception("something is wrong with the shape of the specific prior")
+
         print "starting to do bayesian evidence calculation!!"
 
         evidence = 0
-
         counter = 0
-
         i = 0
 
-
-        #print len(self.transition_dict_.keys())
-
         #only works for order 1 atm
-        if self.reset_ == False:
-            allkeys = frozenset(self.transition_dict_.keys())
-            for s in self.states_initial_:
-                if (s,) not in allkeys:
-                    self.transition_dict_[(s,)] = {}
+        # if self.reset_ == False:
+        #     allkeys = frozenset(self.transition_dict_.keys())
+        #     for s in self.states_initial_:
+        #         if (s,) not in allkeys:
+        #             self.transition_dict_[(s,)] = {}
 
         tmp = 0
 
@@ -289,17 +345,17 @@ class MarkovChain():
             first_term_denom = 0
             second_term_enum = 0
 
-
             #start with combining prior knowledge with real data
             cx = None
             if self.specific_prior_ is not None:
-                if self.specific_prior_.shape[0] == self.specific_prior_.shape[1]:
-                    if self.specific_prior_.shape[0] != self.state_count_initial_-1 and self.specific_prior_.shape[0] != self.state_count_initial_:
-                        raise Exception("something is wrong with the shape of the specific prior")
+                if single_row:
                     if k[0] != RESET_STATE:
-                        if isinstance(self.specific_prior_, csr_matrix):
+                        cx = self.specific_prior_
+                else:
+                    if k[0] != RESET_STATE:
+                        if is_csr:
                             cx = self.specific_prior_.getrow(self.specific_prior_vocab_[k[0]])
-                        elif isinstance(self.specific_prior_, tb.group.RootGroup):
+                        elif is_hdf5:
                             row = self.specific_prior_vocab_[k[0]]
                             indptr_first = self.specific_prior_.indptr[row]
                             indptr_second = self.specific_prior_.indptr[row+1]
@@ -311,62 +367,37 @@ class MarkovChain():
                             else:
                                 shape = (1, self.state_count_initial_)
                             cx = csr_matrix((data, indices, indptr), shape=shape)
-                        else:
-                            raise Exception("wrong specific prior format")
-                elif self.specific_prior_.shape[0] == 1:
-                    if self.specific_prior_.shape[1] != self.state_count_initial_-1 and self.specific_prior_.shape[1] != self.state_count_initial_:
-                        raise Exception("something is wrong with the shape of the specific prior")
-                    if k[0] != RESET_STATE:
-                        cx = self.specific_prior_
-                else:
-                    raise Exception("something is wrong with the shape of the specific prior")
-
+                            if live_distribution:
+                                cx = self._def_distr_chips_row(cx)
 
             n_sum = sum(v.values())
+
+            if n_sum == 0.:
+                raise Exception("The row sum should not be zero, something went wrong here!")
+
             prior_sum = 0
 
             if cx is not None:
                 prior_sum += cx.sum()
+                print "sum", prior_sum
 
-            prior_sum += int(self.state_count_initial_) * self.prior_
-
-
-
-            #print n_sum, prior_sum
-
-            done = set()
-            done_counter = 0
-
-            # if rowmax_prior > 0:
-            #     tmp_max = max(v.values())
+            prior_sum += int(self.state_count_initial_) * self.alpha_
             for x, c in v.iteritems():
-                prior = self.prior_
+                prior = self.alpha_
 
-                if empirical_prior > 0:
-                    prior += empirical_prior
-
-
-                if cx is not None and k[0] != RESET_STATE and x != RESET_STATE:
-
+                # if empirical_prior > 0:
+                #     prior += empirical_prior
+                if cx is not None and x != RESET_STATE:
                     idx = self.specific_prior_vocab_[x]
-
                     prior += cx[0, idx]
-
-                    done.add(idx)
-
 
                 cp = c + prior
 
                 first_term_denom += gammaln(prior)
                 
                 second_term_enum += gammaln(cp)
-                
-                done_counter += 1
+
                 counter += prior
-
-            done = frozenset(done)
-
-
 
             #do the final calculation
             first_term_enum = gammaln(prior_sum)
@@ -377,9 +408,8 @@ class MarkovChain():
 
             evidence += (first_term + second_term)
 
-        #print "final: %.30f" %evidence
         print "evidence", evidence
-        #print self.prior_, empirical_prior, wrong_prior
+        #print self.alpha_, empirical_prior, wrong_prior
         #print "pseudo counts: ", counter
         return evidence
 
