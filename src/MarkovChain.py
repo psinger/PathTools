@@ -290,6 +290,9 @@ class MarkovChain():
         :param live_distribution: This should be set true if the chip (pseudo count) distribution
         has not been done beforehand. If this is set true, the chip_amount parameter has to be set accordingly.
         Note that this variant distributes the same number of chips to each row (instead of potentially globally)!
+        Note though that the live row-based distribution can be much slower compared to a global chip distribution.
+        Thus, I only recommend it if a single-row hypotheses is passed that should be modified slightly for each row
+        independently. In that case, you can manually add the alternation for each row to the code.
         :param chip_amount: Sets the number of chips that should be distributed to each row. Only set if
         the live_distribution parameter is set to True.
         :return: Bayesian evidence (marginal likelihood)
@@ -318,8 +321,8 @@ class MarkovChain():
                 raise Exception("wrong specific prior format")
 
         #if I only have one row, I only need to do the live distribution once
-        if live_distribution and single_row:
-            self.specific_prior_ = self._def_distr_chips_row(self.specific_prior_, chip_amount)
+        #if live_distribution and single_row:
+        #    self.specific_prior_ = self._def_distr_chips_row(self.specific_prior_, chip_amount)
 
             #if self.specific_prior_.shape[1] != self.state_count_initial_-1 and self.specific_prior_.shape[1] != self.state_count_initial_:
                     #    raise Exception("something is wrong with the shape of the specific prior")
@@ -367,8 +370,9 @@ class MarkovChain():
                             else:
                                 shape = (1, self.state_count_initial_)
                             cx = csr_matrix((data, indices, indptr), shape=shape)
-                            if live_distribution:
-                                cx = self._def_distr_chips_row(cx)
+
+            if cx is not None and live_distribution:
+                cx = self._def_distr_chips_row(cx)
 
             n_sum = sum(v.values())
 
