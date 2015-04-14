@@ -43,7 +43,7 @@ class MarkovChain():
     Class for fitting a Markov chain of arbitrary order
     '''
 
-    def __init__(self, k=1, reverse=False, use_prior=False,  reset=True, prior=1., specific_prior = None, specific_prior_vocab = None, modus="mle"):
+    def __init__(self, k=1, reverse=False, use_prior=False,  reset=True, prior=1., state_count = None, specific_prior = None, specific_prior_vocab = None, modus="mle"):
         '''
         Constructor
         :param modus: specifies the modus of the class, there are two possibilities: modus='mle' is focused on working
@@ -53,6 +53,7 @@ class MarkovChain():
         :param use_prior: flag if script should use a prior
         :param reset: flag for using generic reset state
         :param prior: prior (pseudo count) for each single element (in case of MLE it is smoothing)
+        :param state_count: set if you want to also cover states not observed in the data by setting the count manually
         :param specific_prior: sparse matrix of specific alpha configurations (can also be a hdf5 matrix)
         Note that usually the values should directly represent the additional alpha values for corresponding elements.
         :param specific_prior_vocab: dictionary of vocabulary that matches state names with indices
@@ -61,10 +62,11 @@ class MarkovChain():
         self.k_ = k
         self.reset_ = reset
 
-        self.state_count_initial_ = 0
+        self.state_count_ = state_count
         self.states_initial_ = []
         self.parameter_count_ = 0
         self.observation_count_ = 0
+
 
         self.paths_ = list()
         self.paths_test_ = list()
@@ -73,13 +75,10 @@ class MarkovChain():
         self.transition_dict_ = defaultdict(lambda : defaultdict(float))
 
         self.prediction_position_dict_ = dict()
-        self.vocabulary_ = None
-        self.state_distr_ = defaultdict(float)
-
-        self.states_ = dict()
-        self.states_reverse_ = dict()
+        #self.states_ = dict()
+        #self.states_reverse_ = dict()
         self.dtype_ = np.dtype(float)
-        self.reverse_ = reverse
+        #self.reverse_ = reverse
         self.modus_ = modus
 
         self.use_prior_ = use_prior
@@ -98,8 +97,10 @@ class MarkovChain():
             raise Exception("Can't work with a specific alpha without vocabulary information!")
         if self.specific_prior_ is not None and self.modus_ != "bayes":
             raise Exception("Specific alpha only works mit Bayes modus!")
-        if self.specific_prior_ is not None and isinstance(self.specific_prior_, csr_matrix) and self.specific_prior_.shape[0] != self.specific_prior_.shape[1]:
-            warnings.warn("Specific alpha dimensions are not the same. Only appropriate if one the matrix is 1xN for setting each row the same! Only works for csr_matrix!")
+        if self.specific_prior_ is not None and isinstance(self.specific_prior_, csr_matrix):
+            if self.specific_prior_.shape[0] != self.specific_prior_.shape[1]:
+                warnings.warn("Specific alpha dimensions are not the same. Only appropriate if one the matrix is 1xN for setting each row the same! Only works for csr_matrix!")
+
 
         self.proba_from_unknown_ = 0
         self.proba_to_unknown_ = dict()
@@ -110,7 +111,7 @@ class MarkovChain():
         '''
 
         if self.use_prior_ == True:
-            smoothing_divider = float(self.state_count_initial_ * self.alpha_)
+            smoothing_divider = float(self.state_count_ * self.alpha_)
             #print "smoothing divider: ", smoothing_divider
             self.proba_from_unknown_ = self.alpha_ / smoothing_divider
             #print "proba_from_unknown_: ", self.proba_from_unknown_
@@ -118,14 +119,14 @@ class MarkovChain():
             for k, v in d.iteritems():
                 s = float(sum(v.values()))
                 #smoothing_divider = float(sum([round(x*self.alpha_)+self.alpha_ for x in self.specific_prior_[k].values()]))
-                #smoothing_divider += float((self.state_count_initial_ - len(self.specific_prior_[k].values())) * self.alpha_)
+                #smoothing_divider += float((self.state_count_ - len(self.specific_prior_[k].values())) * self.alpha_)
 
                 divider = s + smoothing_divider
                 self.observation_count_ += divider
                 for i, j in v.iteritems():
                     v[i] = (j + self.alpha_) / divider
                 self.proba_to_unknown_[k] = self.alpha_ / divider
-                ##print "row sum: ", (float(sum(v.values())) + ((self.state_count_initial_ - len(v)) * self.proba_to_unknown_[k]))
+                ##print "row sum: ", (float(sum(v.values())) + ((self.state_count_ - len(v)) * self.proba_to_unknown_[k]))
         else:
             for k, v in d.iteritems():
                 s = float(sum(v.values()))
@@ -155,8 +156,8 @@ class MarkovChain():
 
         #little hack for storing the other unobserved average ranks
         #this is wanted so that we do not have to calculate it all the time again
-        #ranked_key_dict[FAKE_ELEM] = n + ((self.state_count_initial_-len(ranked_key_dict)-1)/2.)
-        ranked_key_dict[FAKE_ELEM] = self.state_count_initial_
+        #ranked_key_dict[FAKE_ELEM] = n + ((self.state_count_-len(ranked_key_dict)-1)/2.)
+        ranked_key_dict[FAKE_ELEM] = self.state_count_
 
         return ranked_key_dict
 
@@ -197,24 +198,26 @@ class MarkovChain():
         states = set()
         if self.reset_:
             states.add(RESET_STATE)
+            if self.state_count_ is not None:
+               self.state_count_ += 1
 
         for line in paths:
             for ele in line:
                 states.add(ele)
-                self.state_distr_[ele] += 1
-
         ##print self.state_distr_
 
         self.states_initial_ = frozenset(states)
 
-        sum_state_occ = sum(self.state_distr_.values())
-        for k,v in self.state_distr_.iteritems():
-            self.state_distr_[k] = float(v) / float(sum_state_occ)
 
         #self.state_count_ = math.pow(float(len(states)), self.k_)
-        self.state_count_initial_ = float(len(states))
-        self.parameter_count_ = pow(self.state_count_initial_, self.k_) * (self.state_count_initial_ - 1)
-        #print "initial state count", self.state_count_initial_
+        if self.state_count_ is None:
+            self.state_count_ = float(len(states))
+
+        if self.state_count_ < float(len(states)):
+            raise Exception("You set the state_count too low!")
+
+        self.parameter_count_ = pow(self.state_count_, self.k_) * (self.state_count_ - 1)
+        #print "initial state count", self.state_count_
         ##print self.states_initial_
 
     def fit(self, paths, ret=False):
@@ -315,10 +318,18 @@ class MarkovChain():
                 is_csr = True
                 if self.specific_prior_.shape[0] == 1:
                     single_row = True
+                if self.reset_:
+                    if self.specific_prior_.shape[1] < self.state_count_ - 1:
+                        raise Exception("your specific prior needs to at least cover all states in the trails, shape mismatch")
+                else:
+                    if self.specific_prior_.shape[1] < self.state_count_:
+                        raise Exception("your specific prior needs to at least cover all states in the trails, shape mismatch")
             elif isinstance(self.specific_prior_, tb.group.RootGroup):
                 is_hdf5 = True
             else:
                 raise Exception("wrong specific prior format")
+
+
 
         evidence = 0
         counter = 0
@@ -357,9 +368,9 @@ class MarkovChain():
                             indices = self.specific_prior_.indices[indptr_first:indptr_second]
                             indptr = np.array([0,indices.shape[0]])
                             if self.reset_:
-                                shape = (1, self.state_count_initial_-1)
+                                shape = (1, self.state_count_-1)
                             else:
-                                shape = (1, self.state_count_initial_)
+                                shape = (1, self.state_count_)
                             cx = csr_matrix((data, indices, indptr), shape=shape)
 
             if cx is not None and live_distribution:
@@ -374,9 +385,8 @@ class MarkovChain():
 
             if cx is not None:
                 prior_sum += cx.sum()
-                #print "sum", prior_sum
 
-            prior_sum += int(self.state_count_initial_) * self.alpha_
+            prior_sum += int(self.state_count_) * self.alpha_
             for x, c in v.iteritems():
                 prior = self.alpha_
 
@@ -465,10 +475,10 @@ class MarkovChain():
                     #We come up with an uniform prob distribution
                     if elem not in known_states:
                         if eval == "rank":
-                            #p = self.state_count_initial_ / 2.
-                            p = self.state_count_initial_
+                            #p = self.state_count_ / 2.
+                            p = self.state_count_
                         elif eval == "top":
-                            prob = topx / self.state_count_initial_
+                            prob = topx / self.state_count_
                             if random.uniform <= prob:
                                 p = 1
                             else:
