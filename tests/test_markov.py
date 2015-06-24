@@ -39,7 +39,7 @@ for i in range(0,max_model+1):
     likelihoods[i] = l
     parameters[i] = markov.parameter_count_
     observations[i] = markov.observation_count_
-    state_count_initial[i] = markov.state_count_initial_
+    state_count_initial[i] = markov.state_count_
     
     del markov
 

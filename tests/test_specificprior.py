@@ -25,9 +25,12 @@ with open("../data/test_case_3") as f:
 
 #this is without a specific prior
 evidences = {}
+
 markov = MarkovChain(use_prior=True, reset = True, modus="bayes")
 markov.prepare_data(paths)
 markov.fit(paths)
+
+
 
 evidence = markov.bayesian_evidence()
 
