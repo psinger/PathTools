@@ -3,6 +3,8 @@ PathTools
 
 A collection of tools and algorithms suitable to work with paths (e.g., navigational).
 
+For installing the package, just call '''python setup.py install'''.
+
 Currently, this tool box consists of a framework for Markov chains. It is possible to fit trail corpora with varying order Markov chain models. The framework includes several advanced methods for determining the appropriate Markov chain order (maximum likelihood methods, information-theoretic methods, Bayesian inference and cross validation prediction) [1].
 
 Furthermore, the framework includes a class for calculating semantic similarity between concepts in human navigational paths [2].
