@@ -266,7 +266,7 @@ class MarkovChain():
                         prop = self.transition_dict_norm_[k][x]
                     likelihood += c * math.log(prop)
         else:
-            for k,v in self.transitions.iteritems():
+            for k,v in transitions.iteritems():
                 for x,c in v.iteritems():
                     if self.k_ == 0:
                         prop = self.transition_dict_norm_[FAKE_ELEM][x]
