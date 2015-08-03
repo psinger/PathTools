@@ -268,11 +268,18 @@ class MarkovChain():
         else:
             for k,v in transitions.iteritems():
                 for x,c in v.iteritems():
-                    if self.k_ == 0:
-                        prop = self.transition_dict_norm_[FAKE_ELEM][x]
+                    if k in self.transition_dict_norm_:
+                        if x in self.transition_dict_norm_[k]:
+                            if self.k_ == 0:
+                                prop = self.transition_dict_norm_[FAKE_ELEM][x]
+                            else:
+                                prop = self.transition_dict_norm_[k][x]
+                            likelihood += c * math.log(prop)
+                        else:
+                            prop = self.proba_to_unknown_[k]
+                            likelihood += c * math.log(prop)
                     else:
-                        prop = self.transition_dict_norm_[k][x]
-                    likelihood += c * math.log(prop)
+                        likelihood += c * math.log(self.proba_from_unknown_)
         return likelihood
 
     def bayesian_evidence(self):
