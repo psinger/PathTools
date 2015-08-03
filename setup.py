@@ -5,7 +5,7 @@ from setuptools import find_packages
 
 setup(
     name='pathtools',
-    version='0.6',
+    version='0.61',
     author='Philipp Singer',
     author_email='philipp.singer@gesis.org',
     packages=['pathtools'],
