@@ -246,9 +246,10 @@ class MarkovChain():
             self.transition_dict_norm_ = copy.deepcopy(self.transition_dict_)
             self._dict_divider(self.transition_dict_norm_)
 
-    def loglikelihood(self):
+    def loglikelihood(self, transitions=None):
         '''
         Calculating the log likelihood of the fitted MLE
+        :param transitions: can be set to consider another transition dict
         '''
 
         if self.modus_ != "mle":
@@ -256,14 +257,22 @@ class MarkovChain():
 
         likelihood = 0
 
-        for k,v in self.transition_dict_.iteritems():
-            for x,c in v.iteritems():
-                if self.k_ == 0:
-                    prop = self.transition_dict_norm_[FAKE_ELEM][x]
-                else:
-                    prop = self.transition_dict_norm_[k][x]
-                likelihood += c * math.log(prop)
-
+        if transitions == None:
+            for k,v in self.transition_dict_.iteritems():
+                for x,c in v.iteritems():
+                    if self.k_ == 0:
+                        prop = self.transition_dict_norm_[FAKE_ELEM][x]
+                    else:
+                        prop = self.transition_dict_norm_[k][x]
+                    likelihood += c * math.log(prop)
+        else:
+            for k,v in self.transitions.iteritems():
+                for x,c in v.iteritems():
+                    if self.k_ == 0:
+                        prop = self.transition_dict_norm_[FAKE_ELEM][x]
+                    else:
+                        prop = self.transition_dict_norm_[k][x]
+                    likelihood += c * math.log(prop)
         return likelihood
 
     def bayesian_evidence(self):
