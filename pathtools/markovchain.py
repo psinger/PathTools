@@ -6,24 +6,19 @@ Created on 14.01.2013
 
 from __future__ import division
 
-#import PathSim
-#import csv
+
 from collections import defaultdict, OrderedDict
 import random
 import collections
 import operator
-#import scipy.sparse as sp
+
 import numpy as np
 import sys
 import math
-#import operator
-#from scipy import stats
+
 from scipy.special import gammaln
 from scipy.sparse import csr_matrix, coo_matrix
-#from scipy.special import gamma
-#import copy
-#from random import choice
-import itertools
+
 import copy
 import tables as tb
 import warnings
@@ -63,7 +58,6 @@ class MarkovChain():
         self.reset_ = reset
 
         self.state_count_ = state_count
-        self.states_initial_ = []
         self.parameter_count_ = 0
         self.observation_count_ = 0
 
@@ -73,6 +67,7 @@ class MarkovChain():
 
         #probabilities
         self.transition_dict_ = defaultdict(lambda : defaultdict(float))
+        self.transition_dict_norm_ = None
 
         self.prediction_position_dict_ = dict()
         #self.states_ = dict()
@@ -97,17 +92,13 @@ class MarkovChain():
             raise Exception("Can't work with a specific alpha without vocabulary information!")
         if self.specific_prior_ is not None and self.modus_ != "bayes":
             raise Exception("Specific alpha only works mit Bayes modus!")
-        if self.specific_prior_ is not None and isinstance(self.specific_prior_, csr_matrix):
-            if self.specific_prior_.shape[0] != self.specific_prior_.shape[1]:
-                warnings.warn("Specific alpha dimensions are not the same. Only appropriate if one the matrix is 1xN for setting each row the same! Only works for csr_matrix!")
-
 
         self.proba_from_unknown_ = 0
         self.proba_to_unknown_ = dict()
 
     def _dict_divider(self, d):
         '''
-        Internal function for dict divider and smoothing
+        Internal function for dict dividing and smoothing
         '''
 
         if self.use_prior_ == True:
@@ -134,8 +125,6 @@ class MarkovChain():
                 for i, j in v.iteritems():
                     v[i] = j / s
 
-                ##print "row sum: ", float(sum(v.values()))
-
     def _dict_ranker(self, d):
         '''
         Apply ranks to a dict according to the values
@@ -161,39 +150,12 @@ class MarkovChain():
 
         return ranked_key_dict
 
-    def _distr_chips_row(self, matrix, chips):
-        '''
-        Helper class!
-        Do not use outside.
-        See: https://github.com/psinger/HypTrails
-        '''
-
-        matrix = (matrix / matrix.sum()) * chips
-
-        floored = matrix.floor()
-        rest_sum = int(chips - floored.sum())
-
-        matrix = matrix - floored
-
-        idx = matrix.data.argpartition(-rest_sum)[-rest_sum:]
-
-        i, j = matrix.nonzero()
-
-        i_idx = i[idx]
-        j_idx = j[idx]
-
-        if len(i_idx) > 0:
-            floored[i_idx, j_idx] += 1
-
-        floored.eliminate_zeros()
-
-        del matrix
-        return floored
 
     def prepare_data(self, paths):
         '''
-        preparing data
+        Function for preparing the data
         ALWAYS CALL FIRST
+        :param paths: List of lists containing the individual paths
         '''
         states = set()
         if self.reset_:
@@ -204,12 +166,7 @@ class MarkovChain():
         for line in paths:
             for ele in line:
                 states.add(ele)
-        ##print self.state_distr_
 
-        self.states_initial_ = frozenset(states)
-
-
-        #self.state_count_ = math.pow(float(len(states)), self.k_)
         if self.state_count_ is None:
             self.state_count_ = float(len(states))
 
@@ -217,17 +174,12 @@ class MarkovChain():
             raise Exception("You set the state_count too low!")
 
         self.parameter_count_ = pow(self.state_count_, self.k_) * (self.state_count_ - 1)
-        #print "initial state count", self.state_count_
-        ##print self.states_initial_
 
-    def fit(self, paths, ret=False):
+    def fit(self, paths):
         '''
-        fitting the data and constructing MLE
-        ret = flag for returning the transition matrix
+        Fitting the data and constructing MLE
+        :param paths: List of lists containing the individual paths
         '''
-        #print "====================="
-        #print "K: ", self.k_
-        #print "prior: ", self.alpha_
 
         for line in paths:
             if self.reset_:
@@ -246,14 +198,53 @@ class MarkovChain():
                 else:
                     self.transition_dict_[elemA][elemB] += 1
 
-        ##print self.transition_dict_
-
 
         if self.modus_ == "mle":
-            self._dict_divider(self.transition_dict_)
+            self.transition_dict_norm_ = copy.deepcopy(self.transition_dict_)
+            self._dict_divider(self.transition_dict_norm_)
 
-        if ret:
-            return self.transition_dict_
+
+    def prepare_data_transitions(self, transitions):
+        '''
+        Alternative method for preparing the data if transitions are directly available
+        :param transitions: dict of dicts containing the individual transition counts
+                            Note that the keys need to be tuples
+        ALWAYS CALL FIRST
+        '''
+        states = set()
+        if self.reset_:
+            states.add(RESET_STATE)
+            if self.state_count_ is not None:
+               self.state_count_ += 1
+
+        for k,v in transitions.iteritems():
+            states.add(k[0])
+            for k2 in v.keys():
+                states.add(k2)
+
+        self.states_initial_ = frozenset(states)
+
+        if self.state_count_ is None:
+            self.state_count_ = float(len(states))
+
+        if self.state_count_ < float(len(states)):
+            raise Exception("You set the state_count too low!")
+
+        self.parameter_count_ = pow(self.state_count_, self.k_) * (self.state_count_ - 1)
+
+
+    def fit_transitions(self, transitions, ret=False):
+        '''
+        Alternative method for fitting the data if transitions are directly available
+        :param transitions: dict of dicts containing the individual transition counts
+                            Note that the keys need to be tuples
+        '''
+
+        self.transition_dict_ = transitions
+
+        if self.modus_ == "mle":
+            self.transition_dict_norm_ = copy.deepcopy(self.transition_dict_)
+            self._dict_divider(self.transition_dict_norm_)
 
     def loglikelihood(self):
         '''
@@ -264,27 +255,17 @@ class MarkovChain():
             raise Exception("Loglikelihood calculation does not work with modus='bayes'")
 
         likelihood = 0
-        prop_counter = 0
 
-        for path in self.paths_:
-            i = 0
-            for j in xrange(self.k_, len(path)):
-                elemA = tuple(path[i:j])
-                i += 1
-                elemB = path[j]
+        for k,v in self.transition_dict_.iteritems():
+            for x,c in v.iteritems():
                 if self.k_ == 0:
-                    prop = self.transition_dict_[FAKE_ELEM][elemB]
+                    prop = self.transition_dict_norm_[FAKE_ELEM][x]
                 else:
-                    prop = self.transition_dict_[elemA][elemB]
-                likelihood += math.log(prop)
-                prop_counter += 1
+                    prop = self.transition_dict_norm_[k][x]
+                likelihood += c * math.log(prop)
 
-        #print "likelihood", likelihood
-        #print "prop_counter", prop_counter
         return likelihood
 
-
-    #@profile
     def bayesian_evidence(self):
         '''
         Calculating the bayesian evidence
@@ -302,6 +283,8 @@ class MarkovChain():
         if self.specific_prior_ is not None:
             if isinstance(self.specific_prior_, csr_matrix):
                 is_csr = True
+                if self.specific_prior_.shape[0] != self.specific_prior_.shape[1]:
+                    warnings.warn("Specific alpha dimensions are not the same. Only appropriate if one the matrix is 1xN for setting each row the same! Only works for csr_matrix!")
                 if self.specific_prior_.shape[0] == 1:
                     single_row = True
                 if self.reset_:
@@ -310,23 +293,15 @@ class MarkovChain():
                 else:
                     if self.specific_prior_.shape[1] < self.state_count_:
                         raise Exception("your specific prior needs to at least cover all states in the trails, shape mismatch")
+
             elif isinstance(self.specific_prior_, tb.group.RootGroup):
                 is_hdf5 = True
             else:
                 raise Exception("wrong specific prior format")
 
-
-
         evidence = 0
         counter = 0
         i = 0
-
-        #only works for order 1 atm
-        # if self.reset_ == False:
-        #     allkeys = frozenset(self.transition_dict_.keys())
-        #     for s in self.states_initial_:
-        #         if (s,) not in allkeys:
-        #             self.transition_dict_[(s,)] = {}
 
         tmp = 0
 
@@ -354,11 +329,10 @@ class MarkovChain():
                             indices = self.specific_prior_.indices[indptr_first:indptr_second]
                             indptr = np.array([0,indices.shape[0]])
                             if self.reset_:
-                                shape = (1, self.state_count_-1)
+                                shape = (1, self.state_count_+1)
                             else:
                                 shape = (1, self.state_count_)
                             cx = csr_matrix((data, indices, indptr), shape=shape)
-
 
             n_sum = sum(v.values())
 
@@ -366,16 +340,13 @@ class MarkovChain():
                 raise Exception("The row sum should not be zero, something went wrong here!")
 
             prior_sum = 0
-
             if cx is not None:
                 prior_sum += cx.sum()
-
             prior_sum += int(self.state_count_) * self.alpha_
+
             for x, c in v.iteritems():
                 prior = self.alpha_
 
-                # if empirical_prior > 0:
-                #     prior += empirical_prior
                 if cx is not None and x != RESET_STATE:
                     idx = self.specific_prior_vocab_[x]
                     prior += cx[0, idx]
@@ -397,12 +368,8 @@ class MarkovChain():
 
             evidence += (first_term + second_term)
 
-        #print "evidence", evidence
-        ##print self.alpha_, empirical_prior, wrong_prior
-        ##print "pseudo counts: ", counter
         return evidence
 
-    
     def predict_eval(self, test, eval="rank"):
         '''
         Evaluating via predicting sequencies using MLE
@@ -417,11 +384,11 @@ class MarkovChain():
             raise Exception("Prediction only works with smoothing on!")
 
         if eval == "rank":
-            for k,v in self.transition_dict_.iteritems():
+            for k,v in self.transition_dict_norm_.iteritems():
                 #print v
                 self.prediction_position_dict_[k] = self._dict_ranker(v)
 
-        known_states = frozenset(self.transition_dict_.keys())
+        known_states = frozenset(self.transition_dict_norm_.keys())
         
         for line in test:
             #if self.k
@@ -445,7 +412,7 @@ class MarkovChain():
                                                                           self.prediction_position_dict_[FAKE_ELEM][
                                                                               FAKE_ELEM])
                     elif eval == "top":
-                        row = self.transition_dict_[FAKE_ELEM]
+                        row = self.transition_dict_norm_[FAKE_ELEM]
                         items = row.items()
                         random.shuffle(items)
                         row = OrderedDict(items)
@@ -474,7 +441,7 @@ class MarkovChain():
                                                                          self.prediction_position_dict_[elem][
                                                                              FAKE_ELEM])
                         elif eval == "top":
-                            row = self.transition_dict_[elem]
+                            row = self.transition_dict_norm_[elem]
                             items = row.items()
                             random.shuffle(items)
                             row = OrderedDict(items)
@@ -486,17 +453,9 @@ class MarkovChain():
 
                 position += p
                 counter += 1
-                
 
         average_pos = position / counter 
         ##print "unknown elem counter", unknown_elem_counter       
         #print "counter", counter
         #print "average position", average_pos
         return average_pos
-       
-
-        
-            
-
-                    
-        
